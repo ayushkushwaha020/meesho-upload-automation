@@ -1,5 +1,4 @@
-// @lovable.dev/vite-tanstack-config already includes the TanStack Start, React,
-// Tailwind, path aliases, and Nitro plugins. Keep the config minimal for Render preview.
+// @lovable.dev/vite-tanstack-config provides TanStack Start, React, Tailwind and path aliases.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
@@ -7,5 +6,8 @@ export default defineConfig({
     preview: {
       allowedHosts: ["meesshosnap-studio.onrender.com"],
     },
+  },
+  nitro: {
+    preset: "node-server",
   },
 });
