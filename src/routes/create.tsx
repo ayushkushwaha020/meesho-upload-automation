@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { Camera, Upload, Loader2, Info } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Camera, Upload, Loader2, Info, X, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/AppShell";
@@ -45,6 +45,67 @@ function Create() {
   const nav = useNavigate();
   const settings = useStore((s) => s.settings);
   const [photo, setPhoto] = useState<string>();
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string>();
+  const [cameraBusy, setCameraBusy] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  function stopCamera() {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraOpen(false);
+    setCameraBusy(false);
+  }
+
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  async function openCamera() {
+    setCameraError(undefined);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Camera access is unavailable in this browser. Use Upload instead, or open this site over HTTPS in a supported browser.");
+      setCameraOpen(true);
+      return;
+    }
+    setCameraOpen(true);
+    setCameraBusy(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : "";
+      setCameraError(name === "NotAllowedError" ? "Camera permission was denied. Allow camera access in your browser settings and try again." : name === "NotFoundError" ? "No camera was found on this device. You can use Upload instead." : "Could not start the camera. Check that it is not being used by another app, then try again.");
+    } finally {
+      setCameraBusy(false);
+    }
+  }
+
+  async function capturePhoto() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setCameraError("The camera is still starting. Please wait a moment and try again.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+    if (!blob) {
+      setCameraError("Could not capture the photo. Please try again.");
+      return;
+    }
+    stopCamera();
+    await onFile(new File([blob], "camera-photo.jpg", { type: "image/jpeg" }));
+  }
   const [attrs, setAttrs] = useState<ProductAttributes>({ category: "bangles", subType: "Bangle set", color: "", finish: "", embellishment: "", setCount: "" });
   const [results, setResults] = useState<ImageItem[]>([]);
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -88,6 +149,18 @@ function Create() {
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Create listing" subtitle="Step 1: reference photo · Step 2: confirm attributes & pick images · Step 3: review" />
+      {cameraOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Take a product photo">
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b p-4"><div><h2 className="font-display text-lg font-semibold">Take a photo</h2><p className="text-xs text-muted-foreground">Allow camera access when your browser asks.</p></div><Button variant="ghost" size="icon" aria-label="Close camera" onClick={stopCamera}><X /></Button></div>
+            <div className="relative aspect-[4/3] bg-black">
+              <video ref={videoRef} autoPlay playsInline muted className={`size-full object-contain ${cameraError ? "hidden" : ""}`} />
+              {(cameraBusy || cameraError) && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-white">{cameraBusy ? <><Loader2 className="size-8 animate-spin" /><p>Starting camera…</p></> : <><Camera className="size-8" /><p>{cameraError}</p><Button variant="secondary" onClick={openCamera}><RefreshCw className="mr-2 size-4" />Try again</Button></>}</div>}
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 p-4"><Button variant="outline" onClick={stopCamera}>Cancel</Button><Button onClick={capturePhoto} disabled={cameraBusy || !!cameraError || !streamRef.current}><Camera className="mr-2 size-4" />Capture photo</Button></div>
+          </div>
+        </div>
+      )}
       <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
         <section className="card-surface h-fit p-5">
           <h2 className="font-display text-lg font-semibold">Reference photo</h2>
@@ -96,7 +169,7 @@ function Create() {
             {photo ? <img src={photo} alt="Reference" className="size-full object-cover" /> : <Camera className="size-10 text-muted-foreground" />}
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Button asChild variant="default"><label className="cursor-pointer"><Camera /> Camera<input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} /></label></Button>
+            <Button type="button" variant="default" onClick={openCamera}><Camera /> Camera</Button>
             <Button asChild variant="outline"><label className="cursor-pointer"><Upload /> Upload<input type="file" accept="image/*" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} /></label></Button>
           </div>
 
